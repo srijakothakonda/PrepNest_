@@ -1,0 +1,1 @@
+document.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const form=Object.fromEntries(new FormData(e.target));try{const url=e.target.dataset.mode==='register'?'/register':'/login';await API.post(url,form);location.href='dashboard.html'}catch(err){document.querySelector('.error').textContent=err.message}});

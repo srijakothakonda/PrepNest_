@@ -1,0 +1,3 @@
+const router=require('express').Router(), c=require('../controllers/resourceController'),{requireAuth}=require('../middleware/auth');
+['task','revision','reminder'].forEach(type=>router.route('/'+type).get(requireAuth,c.list(type)).post(requireAuth,c.create(type)));
+router.route('/task/:id').put(requireAuth,c.update('task')).delete(requireAuth,c.remove('task'));router.route('/revision/:id').put(requireAuth,c.update('revision')).delete(requireAuth,c.remove('revision'));router.route('/reminder/:id').put(requireAuth,c.update('reminder')).delete(requireAuth,c.remove('reminder'));module.exports=router;
