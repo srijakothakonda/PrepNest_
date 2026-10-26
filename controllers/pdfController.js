@@ -1,10 +1,8 @@
-
 const db = require('../config/db');
 const path = require('path');
-const fs = require('fs');
+const crypto = require('crypto');
 
 // Get all PDFs for the logged-in user
-
 exports.list = async (req, res) => {
     try {
         const [rows] = await db.query(
@@ -26,12 +24,9 @@ exports.list = async (req, res) => {
     }
 };
 
-
-// Upload a PDF
-
-
+// Upload a PDF (file bytes are saved in the pdf_files table)
 exports.upload = async (req, res) => {
-    let filePath;
+    let conn;
 
     try {
         if (!req.file) {
@@ -39,8 +34,6 @@ exports.upload = async (req, res) => {
                 message: 'Please choose a PDF.'
             });
         }
-
-        filePath = path.join(__dirname, '../uploads', req.file.filename);
 
         const {
             title,
@@ -61,10 +54,13 @@ exports.upload = async (req, res) => {
         }
 
         const originalName = req.file.originalname;
-        const storedName = req.file.filename;
+        const storedName = crypto.randomUUID() + '.pdf';
         const pdfTitle = title || path.parse(originalName).name;
 
-        const [result] = await db.query(
+        conn = await db.getConnection();
+        await conn.beginTransaction();
+
+        const [result] = await conn.query(
             `INSERT INTO pdfs (
                 user_id,
                 title,
@@ -87,6 +83,13 @@ exports.upload = async (req, res) => {
             ]
         );
 
+        await conn.query(
+            'INSERT INTO pdf_files (pdf_id, file_data) VALUES (?, ?)',
+            [result.insertId, req.file.buffer]
+        );
+
+        await conn.commit();
+
         return res.status(201).json({
             id: result.insertId,
             message: 'PDF uploaded.'
@@ -95,20 +98,55 @@ exports.upload = async (req, res) => {
     } catch (err) {
         console.error('PDF upload failed:', err.message);
 
-        if (filePath && fs.existsSync(filePath)) {
+        if (conn) {
             try {
-                fs.unlinkSync(filePath);
-            } catch (fileErr) {
-                console.error(fileErr.message);
+                await conn.rollback();
+            } catch (rollbackErr) {
+                console.error(rollbackErr.message);
             }
         }
 
         return res.status(500).json({
             message: 'Could not upload PDF. Please try again.'
         });
+    } finally {
+        if (conn) conn.release();
     }
 };
 
+// Open / download a PDF
+exports.file = async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT f.file_data, p.original_file_name
+             FROM pdf_files f
+             JOIN pdfs p ON p.id = f.pdf_id
+             WHERE p.id = ? AND p.user_id = ?`,
+            [req.params.id, req.session.user.id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({
+                message: 'PDF not found.'
+            });
+        }
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader(
+            'Content-Disposition',
+            `inline; filename*=UTF-8''${encodeURIComponent(rows[0].original_file_name)}`
+        );
+
+        return res.send(rows[0].file_data);
+
+    } catch (err) {
+        console.error('PDF open failed:', err.message);
+
+        return res.status(500).json({
+            message: 'Could not open PDF.'
+        });
+    }
+};
 
 // Update reading progress or favorite status
 exports.update = async (req, res) => {
@@ -152,34 +190,20 @@ exports.update = async (req, res) => {
 // Delete a PDF
 exports.remove = async (req, res) => {
     try {
-        const [rows] = await db.query(
-            'SELECT stored_file_name FROM pdfs WHERE id = ? AND user_id = ?'
+        const [result] = await db.query(
+            'DELETE FROM pdfs WHERE id = ? AND user_id = ?',
             [req.params.id, req.session.user.id]
         );
 
-        if (rows.length === 0) {
+        if (result.affectedRows === 0) {
             return res.status(404).json({
                 message: 'PDF not found.'
             });
         }
 
-        const fileName = rows[0].stored_file_name
-
-        if (fileName) {
-            const filePath = path.join(
-                __dirname,
-                '../uploads',
-                fileName
-            );
-
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-            }
-        }
-
         await db.query(
-            'DELETE FROM pdfs WHERE id = ? AND user_id = ?',
-            [req.params.id, req.session.user.id]
+            'DELETE FROM pdf_files WHERE pdf_id = ?',
+            [req.params.id]
         );
 
         return res.json({
