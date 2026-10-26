@@ -2,6 +2,8 @@
 
 PrepNest is a personal study and placement workspace built with vanilla HTML, CSS, JavaScript, Node.js, Express, MySQL, Multer, and bcrypt. It has account authentication, a dashboard, PDF storage and reading progress, tasks, revisions, and browser reminders.
 
+Demo link:https://prep-nest-chi.vercel.app/
+
 ## Project map
 
 - `server.js` starts Express, serves the app, and registers every API.
